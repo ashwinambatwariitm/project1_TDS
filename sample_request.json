@@ -1,0 +1,15 @@
+{
+  "email": "student@example.com",
+  "secret": "abcd1234",
+  "task": "captcha-solver-project",
+  "round": 1,
+  "nonce": "xyz-999",
+  "brief": "Create a modern responsive web page that allows users to input a captcha image URL and displays the solved text below it.",
+  "checks": [
+    "Repo has MIT license",
+    "README.md is professional",
+    "Page displays captcha URL passed at ?url=...",
+    "Page displays solved captcha text within 15 seconds"
+  ],
+  "evaluation_url": "https://example.com/notify"
+}

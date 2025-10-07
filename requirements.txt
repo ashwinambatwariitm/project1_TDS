@@ -1,0 +1,21 @@
+# requirements.txt
+
+# Web framework
+fastapi
+uvicorn
+
+# Environment and configuration
+python-dotenv
+pydantic
+
+# LLM Integration
+google-generativeai
+
+# HTTP requests for evaluation callback
+requests
+
+# Git automation
+gitpython
+
+# For handling file system operations
+pathlib
