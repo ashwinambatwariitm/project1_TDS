@@ -13,6 +13,19 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 genai.configure(api_key=GEMINI_API_KEY)
 
+
+# Only for testing secrets loading (do NOT print actual keys!)
+if __name__ == "__main__":
+    # Check if the environment variables exist
+    secrets = ["GITHUB_USERNAME", "GITHUB_TOKEN", "GEMINI_API_KEY"]
+    for secret in secrets:
+        if os.getenv(secret):
+            print(f"✅ {secret} is set")
+        else:
+            print(f"❌ {secret} is NOT set")
+            
+            
+
 def generate_html_from_brief(brief):
     """Send task brief to Gemini 2.5 Flash and get HTML output."""
     model = genai.GenerativeModel("gemini-2.5-flash")
