@@ -4,6 +4,7 @@ import requests
 import google.generativeai as genai
 from dotenv import load_dotenv
 from repo_utils import create_and_setup_repo
+from datetime import datetime
 
 # 1️⃣ Load environment variables
 load_dotenv()
@@ -49,7 +50,17 @@ def process_json_request(json_data):
     evaluation_url = json_data["evaluation_url"]
 
     print(f"📨 Processing task: {task}")
+    # Current datetime string, e.g., 20251007_1430
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Base repo name
     repo_name = f"{task.replace('-', '_')}_webapp"
+
+    # Append timestamp only for first round
+    if round_num == 1:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        repo_name = f"{repo_name}_{timestamp}"
+
+    print(f"🚀 Using repository: {repo_name}")
 
     # Generate HTML output
     html_output = generate_html_from_brief(brief)
