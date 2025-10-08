@@ -43,10 +43,15 @@ def generate_html_from_brief(brief):
 
 def generate_html_from_brief_fixed(brief):
     client = genai.Client(api_key=GEMINI_API_KEY)
+    prompt = f"""
+        You are an expert web app developer. Based on the following project brief:
+        {brief}
 
-    return client.models.generate_content(
-        model="gemini-2.5-flash", contents="Explain how AI works in a few words"
-    )
+        Generate only a COMPLETE HTML file (with inline CSS/JS) that fulfills the brief.
+        Do not generate Python code. Use responsive modern design.
+        """
+
+    return client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
 
 
 def process_json_request(json_data):
