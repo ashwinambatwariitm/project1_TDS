@@ -38,7 +38,14 @@ def generate_html_from_brief(brief):
     Do not generate Python code. Use responsive modern design.
     """
     response = model.generate_content(prompt)
-    return response.text
+    
+    html_content =  response.text
+    if "```html" in html_content:
+        html_content = html_content.split("```html")[1].split("```")[0].strip()
+    elif "```" in html_content:
+        html_content = html_content.split("```")[1].split("```")[0].strip()
+        
+    return html_content
 
 def process_json_request(json_data):
     """Extract details, call Gemini, create GitHub repo, notify evaluation URL."""

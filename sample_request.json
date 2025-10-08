@@ -4,7 +4,7 @@
   "task": "captcha-solver-project",
   "round": 1,
   "nonce": "xyz-999",
-  "brief": "Create a modern responsive web page that allows users to input a captcha image URL and displays the solved text below it.",
+  "brief": "Create a calcultor webpage",
   "checks": [
     "Repo has MIT license",
     "README.md is professional",
