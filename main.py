@@ -1,8 +1,8 @@
 import os
 import json
 import requests
-import google.generativeai as genai
 from dotenv import load_dotenv
+from google import genai
 from repo_utils import create_and_setup_repo
 from datetime import datetime
 
@@ -12,7 +12,8 @@ GITHUB_USERNAME = os.getenv("GITHUB_USERNAME")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-genai.configure(api_key=GEMINI_API_KEY)
+# genai.configure(api_key=GEMINI_API_KEY)
+genai.Client(api_key=GEMINI_API_KEY)
 
 
 # Only for testing secrets loading (do NOT print actual keys!)
@@ -24,8 +25,7 @@ if __name__ == "__main__":
             print(f"✅ {secret} is set")
         else:
             print(f"❌ {secret} is NOT set")
-            
-            
+
 
 def generate_html_from_brief(brief):
     """Send task brief to Gemini 2.5 Flash and get HTML output."""
@@ -46,6 +46,20 @@ def generate_html_from_brief(brief):
         html_content = html_content.split("```")[1].split("```")[0].strip()
         
     return html_content
+
+
+def generate_html_from_brief_fixed(brief):
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    prompt = f"""
+        You are an expert web app developer. Based on the following project brief:
+        {brief}
+
+        Generate only a COMPLETE HTML file (with inline CSS/JS) that fulfills the brief.
+        Do not generate Python code. Use responsive modern design.
+        """
+
+    return client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+
 
 def process_json_request(json_data):
     """Extract details, call Gemini, create GitHub repo, notify evaluation URL."""
@@ -70,10 +84,12 @@ def process_json_request(json_data):
     print(f"🚀 Using repository: {repo_name}")
 
     # Generate HTML output
-    html_output = generate_html_from_brief(brief)
+    html_output = generate_html_from_brief_fixed(brief)
 
     # Create child repo & deploy
-    pages_url = create_and_setup_repo(repo_name, html_output, GITHUB_USERNAME, GITHUB_TOKEN)
+    pages_url = create_and_setup_repo(
+        repo_name, html_output, GITHUB_USERNAME, GITHUB_TOKEN
+    )
 
     # Notify evaluation URL
     payload = {
@@ -83,17 +99,20 @@ def process_json_request(json_data):
         "nonce": nonce,
         "repo_url": f"https://github.com/{GITHUB_USERNAME}/{repo_name}",
         "commit_sha": "auto_commit_sha",  # Optional - can extract via subprocess if needed
-        "pages_url": pages_url
+        "pages_url": pages_url,
     }
 
     try:
-        r = requests.post(evaluation_url, json=payload, headers={"Content-Type": "application/json"})
+        r = requests.post(
+            evaluation_url, json=payload, headers={"Content-Type": "application/json"}
+        )
         if r.status_code == 200:
             print("✅ Evaluation notified successfully.")
         else:
             print(f"⚠️ Evaluation notify failed: {r.status_code}")
     except Exception as e:
         print(f"❌ Error notifying evaluation: {e}")
+
 
 if __name__ == "__main__":
     # Example of reading JSON from local file or TDS request
