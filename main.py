@@ -7,6 +7,51 @@ from dotenv import load_dotenv
 from repo_utils import create_and_setup_repo
 from datetime import datetime
 import subprocess
+from huggingface_hub import HfApi, create_repo
+
+def deploy_to_huggingface(repo_name, html_content):
+    """
+    Deploy the generated HTML app to a new Hugging Face Space.
+    It creates (or updates) a Space named <repo_name> and pushes HTML there.
+    """
+    hf_token = os.getenv("HF_UBUNTU_TOKEN")
+    if not hf_token:
+        print("❌ HF_UBUNTU_TOKEN not found in .env. Please set your Hugging Face token.")
+        return None
+
+    api = HfApi()
+
+    # Create or reuse a space
+    space_id = f"{GITHUB_USERNAME}/{repo_name}"
+    print(f"🚀 Deploying to Hugging Face Space: {space_id}")
+
+    try:
+        create_repo(
+            repo_id=space_id,
+            repo_type="space",
+            token=hf_token,
+            space_sdk="static",  # 'static' = pure HTML/CSS/JS app
+            exist_ok=True
+        )
+
+        # Push index.html to space
+        with open("index.html", "w") as f:
+            f.write(html_content)
+
+        api.upload_file(
+            path_or_fileobj="index.html",
+            path_in_repo="index.html",
+            repo_id=space_id,
+            repo_type="space",
+            token=hf_token
+        )
+
+        print(f"✅ Successfully deployed to: https://huggingface.co/spaces/{space_id}")
+        return f"https://huggingface.co/spaces/{space_id}"
+
+    except Exception as e:
+        print(f"❌ Failed to deploy to Hugging Face: {e}")
+        return None
 
 # 1️⃣ Load environment variables
 load_dotenv()
@@ -106,7 +151,14 @@ def process_json_request(json_data):
     if repo_path is None:
         print("❌ Repository setup failed. Aborting.")
         return
-    
+
+    # Step 2.5: Deploy app to Hugging Face Space
+    hf_space_url = deploy_to_huggingface(repo_name, html_output)
+    if hf_space_url:
+        print(f"🌐 Hugging Face deployment URL: {hf_space_url}")
+    else:
+        print("⚠️ Hugging Face deployment skipped or failed.")
+
     # Step 3: Use commit_sha returned from create_and_setup_repo
     payload = {
         "email": email,

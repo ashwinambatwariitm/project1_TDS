@@ -23,6 +23,9 @@ pathlib
 #  for your test client.
 flask
 
+#HUGGING FACE 
+huggingface_hub>=0.23.0
+
 pytest
 
 # a backport of unittest (optional, only if you need features from newer Python versions).
