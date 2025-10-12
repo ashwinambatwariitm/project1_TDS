@@ -19,3 +19,11 @@ gitpython
 
 # For handling file system operations
 pathlib
+
+#  for your test client.
+flask
+
+pytest
+
+# a backport of unittest (optional, only if you need features from newer Python versions).
+unittest2

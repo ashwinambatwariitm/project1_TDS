@@ -1,15 +1,22 @@
 {
   "email": "student@example.com",
   "secret": "abcd1234",
-  "task": "captcha-solver-project",
+  "task": "HannoverMarathi_Webpage_Development",
   "round": 1,
   "nonce": "xyz-999",
-  "brief": "Create a calcultor webpage",
+  "brief": "HannoverMarathi is a modern, professional static website representing the Marathi-speaking community in Hannover, Germany. It is designed to promote cultural events, connect members, and provide registration and contact information. The site is built using HTML, CSS (with Flexbox or Grid for layout), and light JavaScript for interactivity. The design follows a clean, mobile-first approach with a professional color palette inspired by Maharashtra's culture — warm orange, white, and subtle gray tones. The homepage includes a welcoming banner and navigation to four key sections: About, Programs, Registration, and Contact. Each section has a dedicated page with responsive design, accessible text, and minimalistic layout. The footer includes community links and copyright information. The site is hosted on GitHub Pages.",
   "checks": [
-    "Repo has MIT license",
-    "README.md is professional",
-    "Page displays captcha URL passed at ?url=...",
-    "Page displays solved captcha text within 15 seconds"
+    "Repository includes MIT License file",
+    "README.md explains project purpose, structure, and how to deploy on GitHub Pages",
+    "Website has a navigation bar linking About, Programs, Registration, and Contact pages",
+    "Home page includes a banner image and introduction text",
+    "About page describes Hannover Marathi community and its cultural mission",
+    "Programs page lists cultural, social, and festival events in a card-style layout",
+    "Registration page includes a working HTML form or embedded Google Form",
+    "Contact page includes email, phone, or social links for organizers",
+    "Site is fully responsive on mobile and desktop",
+    "Uses clean, professional styling with consistent color scheme and typography",
+    "Deployed successfully as a GitHub Pages static site"
   ],
-  "evaluation_url": "https://example.com/notify"
+  "evaluation_url": "https://httpbin.org/post"
 }
