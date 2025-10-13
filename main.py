@@ -4,24 +4,35 @@ import requests
 import time
 import google.generativeai as genai
 from dotenv import load_dotenv
-from repo_utils import create_and_setup_repo
+from repo_utils import create_and_setup_repo, subprocess_run_safe
 from datetime import datetime
 import subprocess
 from huggingface_hub import HfApi, create_repo
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+import sys
+
+# 1️⃣ Load environment variables
+load_dotenv()
+GITHUB_USERNAME = os.getenv("GITHUB_USERNAME")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+HF_UBUNTU_TOKEN = os.getenv("HF_UBUNTU_TOKEN")
+SERVER_SECRET = os.getenv("SERVER_SECRET", "abcd1234")
+
+genai.configure(api_key=GEMINI_API_KEY)
+
+# ------------------------------------------------------------------------------
+# 🔧 Utility Functions
+# ------------------------------------------------------------------------------
 
 def deploy_to_huggingface(repo_name, html_content):
-    """
-    Deploy the generated HTML app to a new Hugging Face Space.
-    It creates (or updates) a Space named <repo_name> and pushes HTML there.
-    """
-    hf_token = os.getenv("HF_UBUNTU_TOKEN")
-    if not hf_token:
-        print("❌ HF_UBUNTU_TOKEN not found in .env. Please set your Hugging Face token.")
+    """Deploy HTML to a Hugging Face static Space."""
+    if not HF_UBUNTU_TOKEN:
+        print("❌ HF_UBUNTU_TOKEN not found. Skipping Hugging Face deploy.")
         return None
 
     api = HfApi()
-
-    # Create or reuse a space
     space_id = f"{GITHUB_USERNAME}/{repo_name}"
     print(f"🚀 Deploying to Hugging Face Space: {space_id}")
 
@@ -29,54 +40,45 @@ def deploy_to_huggingface(repo_name, html_content):
         create_repo(
             repo_id=space_id,
             repo_type="space",
-            token=hf_token,
-            space_sdk="static",  # 'static' = pure HTML/CSS/JS app
-            exist_ok=True
+            token=HF_UBUNTU_TOKEN,
+            space_sdk="static",
+            exist_ok=True,
         )
 
-        # Push index.html to space
         tmp_path = "/tmp/index.html"
         with open(tmp_path, "w") as f:
             f.write(html_content)
-
 
         api.upload_file(
             path_or_fileobj=tmp_path,
             path_in_repo="index.html",
             repo_id=space_id,
             repo_type="space",
-            token=hf_token
+            token=HF_UBUNTU_TOKEN,
         )
 
         print(f"✅ Successfully deployed to: https://huggingface.co/spaces/{space_id}")
         return f"https://huggingface.co/spaces/{space_id}"
 
     except Exception as e:
-        print(f"❌ Failed to deploy to Hugging Face: {e}")
+        print(f"❌ Hugging Face deploy failed: {e}")
         return None
-
-# 1️⃣ Load environment variables
-load_dotenv()
-GITHUB_USERNAME = os.getenv("GITHUB_USERNAME")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-genai.configure(api_key=GEMINI_API_KEY)
 
 
 def generate_html_from_brief(brief):
-    """Send task brief to Gemini 2.5 Flash and get HTML output."""
+    """Generate HTML output using Gemini model."""
     model = genai.GenerativeModel("gemini-2.5-flash")
     prompt = f"""
-    You are an expert web app developer. Based on the following project brief:
+    You are an expert web developer. Based on the following project brief:
     {brief}
 
-    Generate only a COMPLETE HTML file (with inline CSS/JS) that fulfills the brief.
-    Do not generate Python code. Use responsive modern design.
+    Generate a COMPLETE HTML file (with inline CSS/JS) implementing the requested feature(s).
+    Do not include Python code or explanations.
     """
     response = model.generate_content(prompt)
-    
     html_content = response.text
+
+    # Extract HTML safely
     if "```html" in html_content:
         html_content = html_content.split("```html")[1].split("```")[0].strip()
     elif "```" in html_content:
@@ -84,32 +86,13 @@ def generate_html_from_brief(brief):
     return html_content
 
 
-def get_latest_commit_sha(repo_name):
-    """Return latest commit SHA from the local repo."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=repo_name,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-        return "unknown_commit"
-    except Exception:
-        return "unknown_commit"
-
-
 def post_with_retry(url, payload, max_wait=600):
-    """POST payload with exponential backoff until success or 10 minutes."""
-    delay = 1
+    """POST payload with exponential backoff for up to 10 minutes."""
+    delay = 2
     total_wait = 0
-    headers = {"Content-Type": "application/json"}
-
     while total_wait < max_wait:
         try:
-            r = requests.post(url, json=payload, headers=headers)
+            r = requests.post(url, json=payload, headers={"Content-Type": "application/json"})
             if r.status_code == 200:
                 print("✅ Evaluation notified successfully.")
                 return True
@@ -117,99 +100,143 @@ def post_with_retry(url, payload, max_wait=600):
                 print(f"⚠️ Server returned {r.status_code}: {r.text}")
         except Exception as e:
             print(f"❌ POST failed: {e}")
-
         print(f"⏳ Retrying in {delay}s...")
         time.sleep(delay)
         total_wait += delay
-        delay *= 2  # exponential backoff
-
-    print("❌ Gave up after 10 minutes without success.")
+        delay = min(delay * 2, 60)
+    print("❌ Gave up after 10 minutes.")
     return False
 
+# ------------------------------------------------------------------------------
+# 🧩 Main Processing Logic
+# ------------------------------------------------------------------------------
 
 def process_json_request(json_data):
-    """Main pipeline for processing TDS server JSON."""
-    email = json_data["email"]
-    task = json_data["task"]
-    round_num = json_data["round"]
-    nonce = json_data["nonce"]
-    brief = json_data["brief"]
-    evaluation_url = json_data["evaluation_url"]
+    """Handles both round 1 and round 2 requests."""
+    email = json_data.get("email")
+    task = json_data.get("task")
+    round_num = json_data.get("round", 1)
+    nonce = json_data.get("nonce")
+    brief = json_data.get("brief")
+    evaluation_url = json_data.get("evaluation_url")
+    secret = json_data.get("secret")
 
-    print(f"📨 Processing task: {task}")
+    if secret != SERVER_SECRET:
+        print("❌ Invalid secret.")
+        return {"status": "error", "message": "Unauthorized"}, 401
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    repo_name = f"{task.replace('-', '_')}_{timestamp}"
+    print(f"📨 Processing task: {task} (Round {round_num})")
 
-    print(f"🚀 Using repository: {repo_name}")
+    if round_num == 1:
+        # Round 1 → Full site creation
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        repo_name = f"{task}_{timestamp}"
 
-    # Step 1: Generate HTML
-    html_output = generate_html_from_brief(brief)
+        html_output = generate_html_from_brief(brief)
+        repo_path, pages_url, commit_sha = create_and_setup_repo(
+            repo_name, html_output, GITHUB_USERNAME, GITHUB_TOKEN
+        )
+        hf_space_url = deploy_to_huggingface(repo_name, html_output)
 
-    # Step 2: Create repo and deploy
-    repo_path, pages_url, commit_sha = create_and_setup_repo(
-        repo_name, html_output, GITHUB_USERNAME, GITHUB_TOKEN
-    )
-    if repo_path is None:
-        print("❌ Repository setup failed. Aborting.")
-        return
+        payload = {
+            "email": email,
+            "task": task,
+            "round": 1,
+            "nonce": nonce,
+            "repo_url": f"https://github.com/{GITHUB_USERNAME}/{repo_name}",
+            "commit_sha": commit_sha,
+            "pages_url": pages_url,
+        }
 
-    # Step 2.5: Deploy app to Hugging Face Space
-    hf_space_url = deploy_to_huggingface(repo_name, html_output)
-    if hf_space_url:
-        print(f"🌐 Hugging Face deployment URL: {hf_space_url}")
-    else:
-        print("⚠️ Hugging Face deployment skipped or failed.")
+        print(f"📤 Sending Round 1 payload:\n{json.dumps(payload, indent=2)}")
+        post_with_retry(evaluation_url, payload)
 
-    # Step 3: Use commit_sha returned from create_and_setup_repo
-    payload = {
-        "email": email,
-        "task": task,
-        "round": round_num,
-        "nonce": nonce,
-        "repo_url": f"https://github.com/{GITHUB_USERNAME}/{repo_name}",
-        "commit_sha": commit_sha,
-        "pages_url": pages_url,
-    }
+        return {"status": "✅ Round 1 completed", "repo": repo_name}, 200
 
-    print(f"📤 Sending payload to evaluation URL:\n{json.dumps(payload, indent=2)}")
-    post_with_retry(evaluation_url, payload)
+    elif round_num == 2:
+        # Round 2 → Modify existing repo and redeploy
+        existing_repo_name = json_data.get("existing_repo_name")
+        if not existing_repo_name:
+            print("❌ Missing 'existing_repo_name' for round 2.")
+            return {"status": "error", "message": "existing_repo_name required"}, 400
 
+        print(f"🛠️ Updating repository: {existing_repo_name}")
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+        # Clone repo
+        auth_url = f"https://oauth2:{GITHUB_TOKEN}@github.com/{GITHUB_USERNAME}/{existing_repo_name}.git"
+        subprocess_run_safe(["git", "clone", auth_url, existing_repo_name])
+        repo_dir = os.path.join(os.getcwd(), existing_repo_name)
 
-app = FastAPI(title="Dynamic Auto Web Deployer")
+        # Generate updated HTML
+        html_output = generate_html_from_brief(brief)
+        with open(os.path.join(repo_dir, "index.html"), "w") as f:
+            f.write(html_output)
+
+        # Update README.md
+        readme_path = os.path.join(repo_dir, "README.md")
+        with open(readme_path, "a") as f:
+            f.write(f"\n\n## Round 2 Update\n- {brief}\n")
+
+        # Commit and push updates
+        cmds = [
+            ["git", "config", "user.name", "Automation Bot"],
+            ["git", "config", "user.email", "bot@example.com"],
+            ["git", "add", "."],
+            ["git", "commit", "-m", "Round 2 feature update"],
+            ["git", "push", "origin", "main"],
+        ]
+        for cmd in cmds:
+            subprocess_run_safe(cmd, cwd=repo_dir)
+
+        commit_sha = subprocess_run_safe(["git", "rev-parse", "HEAD"], cwd=repo_dir)
+        pages_url = f"https://{GITHUB_USERNAME}.github.io/{existing_repo_name}/"
+
+        payload = {
+            "email": email,
+            "task": task,
+            "round": 2,
+            "nonce": nonce,
+            "repo_url": f"https://github.com/{GITHUB_USERNAME}/{existing_repo_name}",
+            "commit_sha": commit_sha or "unknown_commit",
+            "pages_url": pages_url,
+        }
+
+        # Print payload for round 2 like round 1
+        print(f"📤 Sending Round 2 payload:\n{json.dumps(payload, indent=2)}")
+        post_with_retry(evaluation_url, payload)
+
+        return {"status": "✅ Round 2 completed", "repo": existing_repo_name}, 200
+
+# ------------------------------------------------------------------------------
+# ⚙️ FastAPI Web Server
+# ------------------------------------------------------------------------------
+
+app = FastAPI(title="Dynamic Auto Web Deployer (Round 1 + Round 2)")
 
 @app.get("/")
 def root():
-    """Check if app is alive"""
-    return {"status": "✅ Running", "message": "Auto Web Deployer is live on Hugging Face."}
-
+    return {"status": "✅ Running", "message": "Auto Web Deployer is live."}
 
 @app.post("/deploy")
 async def deploy(request: Request):
-    """
-    Receive a JSON request with:
-    {
-      "email": "...",
-      "task": "...",
-      "round": 1,
-      "nonce": "...",
-      "brief": "...",
-      "evaluation_url": "..."
-    }
-    """
+    """Main endpoint for both round 1 and round 2."""
     try:
         json_data = await request.json()
-        process_json_request(json_data)
-        return JSONResponse({"status": "✅ Task started successfully", "details": json_data["task"]})
+        result, code = process_json_request(json_data)
+        return JSONResponse(result, status_code=code)
     except Exception as e:
         return JSONResponse({"status": "❌ Failed", "error": str(e)}, status_code=500)
 
+# ------------------------------------------------------------------------------
+# ⚡ Local Testing
+# ------------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    # For local testing
-    with open("sample_request.json") as f:
+    if len(sys.argv) < 2:
+        print("❌ Please provide JSON request file as argument, e.g.: python3 main.py sample_request_round1.json")
+        sys.exit(1)
+
+    json_file = sys.argv[1]
+    with open(json_file) as f:
         json_data = json.load(f)
     process_json_request(json_data)

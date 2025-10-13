@@ -1,0 +1,11 @@
+{
+  "email": "student@example.com",
+  "secret": "abcd1234",
+  "task": "HannoverMarathi_Webpage_Development",
+  "round": 2,
+  "nonce": "xyz-1000",
+  "brief": "Add a new feature to handle SVG images in the homepage banner and update footer links.",
+  "existing_repo_name": "HannoverMarathi_Webpage_Development_20251013_232312",
+  "evaluation_url": "https://httpbin.org/post"
+}
+
