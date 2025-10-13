@@ -31,4 +31,4 @@ ENV PORT=7860
 EXPOSE 7860
 
 # Run your main script on container start
-CMD ["python", "main.py"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
