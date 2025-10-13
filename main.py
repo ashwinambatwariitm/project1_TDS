@@ -176,6 +176,38 @@ def process_json_request(json_data):
     post_with_retry(evaluation_url, payload)
 
 
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+
+app = FastAPI(title="Dynamic Auto Web Deployer")
+
+@app.get("/")
+def root():
+    """Check if app is alive"""
+    return {"status": "✅ Running", "message": "Auto Web Deployer is live on Hugging Face."}
+
+
+@app.post("/deploy")
+async def deploy(request: Request):
+    """
+    Receive a JSON request with:
+    {
+      "email": "...",
+      "task": "...",
+      "round": 1,
+      "nonce": "...",
+      "brief": "...",
+      "evaluation_url": "..."
+    }
+    """
+    try:
+        json_data = await request.json()
+        process_json_request(json_data)
+        return JSONResponse({"status": "✅ Task started successfully", "details": json_data["task"]})
+    except Exception as e:
+        return JSONResponse({"status": "❌ Failed", "error": str(e)}, status_code=500)
+
+
 if __name__ == "__main__":
     # For local testing
     with open("sample_request.json") as f:
