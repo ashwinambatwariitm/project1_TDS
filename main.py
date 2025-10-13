@@ -35,11 +35,13 @@ def deploy_to_huggingface(repo_name, html_content):
         )
 
         # Push index.html to space
-        with open("index.html", "w") as f:
+        tmp_path = "/tmp/index.html"
+        with open(tmp_path, "w") as f:
             f.write(html_content)
 
+
         api.upload_file(
-            path_or_fileobj="index.html",
+            path_or_fileobj=tmp_path,
             path_in_repo="index.html",
             repo_id=space_id,
             repo_type="space",
