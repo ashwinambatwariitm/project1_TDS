@@ -138,8 +138,8 @@ def process_json_request(json_data):
             )
             hf_space_url = deploy_to_huggingface(repo_name, html_output)
 
-            # Save last repo name for round 2
-            with open("last_round1_repo.txt", "w") as f:
+            # Save last repo name for round 2 in the /tmp directory
+            with open("/tmp/last_round1_repo.txt", "w") as f:
                 f.write(repo_name)
 
             payload = {
@@ -166,9 +166,10 @@ def process_json_request(json_data):
         # Determine repo name
         existing_repo_name = json_data.get("existing_repo_name")
         if not existing_repo_name:
-            # fallback to last_round1_repo.txt
-            if os.path.exists("last_round1_repo.txt"):
-                with open("last_round1_repo.txt") as f:
+            # fallback to last_round1_repo.txt in the /tmp directory
+            tmp_repo_file = "/tmp/last_round1_repo.txt"
+            if os.path.exists(tmp_repo_file):
+                with open(tmp_repo_file) as f:
                     existing_repo_name = f.read().strip()
             else:
                 print("❌ Missing 'existing_repo_name' for round 2.")
