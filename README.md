@@ -7,6 +7,7 @@ sdk: docker
 app_port: 7860
 -----
 
+----
 # 🤖 AI Web App Auto-Deployer
 
 This project is a powerful automation tool that uses the Google Gemini API to generate a complete static website from a simple text brief. It then automatically creates a GitHub repository, pushes the generated code, deploys it to **GitHub Pages**, and mirrors the deployment on **Hugging Face Spaces**. The entire process is managed via a FastAPI server, designed to handle both initial deployments and subsequent updates.
