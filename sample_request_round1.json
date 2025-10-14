@@ -1,22 +1,9 @@
 {
   "email": "student@example.com",
-  "secret": "abcd1234",
-  "task": "HannoverMarathi_Webpage_Development",
+  "task": "SnakeAndLadderGame",
   "round": 1,
-  "nonce": "xyz-999",
-  "brief": "HannoverMarathi is a modern, professional static website representing the Marathi-speaking community in Hannover, Germany. It is designed to promote cultural events, connect members, and provide registration and contact information. The site is built using HTML, CSS (with Flexbox or Grid for layout), and light JavaScript for interactivity. The design follows a clean, mobile-first approach with a professional color palette inspired by Maharashtra's culture — warm orange, white, and subtle gray tones. The homepage includes a welcoming banner and navigation to four key sections: About, Programs, Registration, and Contact. Each section has a dedicated page with responsive design, accessible text, and minimalistic layout. The footer includes community links and copyright information. The site is hosted on GitHub Pages.",
-  "checks": [
-    "Repository includes MIT License file",
-    "README.md explains project purpose, structure, and how to deploy on GitHub Pages",
-    "Website has a navigation bar linking About, Programs, Registration, and Contact pages",
-    "Home page includes a banner image and introduction text",
-    "About page describes Hannover Marathi community and its cultural mission",
-    "Programs page lists cultural, social, and festival events in a card-style layout",
-    "Registration page includes a working HTML form or embedded Google Form",
-    "Contact page includes email, phone, or social links for organizers",
-    "Site is fully responsive on mobile and desktop",
-    "Uses clean, professional styling with consistent color scheme and typography",
-    "Deployed successfully as a GitHub Pages static site"
-  ],
-  "evaluation_url": "https://httpbin.org/post"
+  "nonce": "snake-001",
+  "secret": "abcd1234",
+  "evaluation_url": "https://postman-echo.com/post",
+  "brief": "Create a simple web-based Snake and Ladder game for 2 players. The game should have a 10x10 board, dice roll functionality, and player tokens moving on the board. Use HTML, CSS, and JavaScript only. Do not include any backend logic."
 }

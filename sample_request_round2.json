@@ -1,11 +1,9 @@
 {
   "email": "student@example.com",
-  "secret": "abcd1234",
-  "task": "HannoverMarathi_Webpage_Development",
+  "task": "SnakeAndLadderGame",
   "round": 2,
-  "nonce": "xyz-1000",
-  "brief": "Add a new feature to handle SVG images in the homepage banner and update footer links.",
-  "existing_repo_name": "HannoverMarathi_Webpage_Development_20251013_232312",
-  "evaluation_url": "https://httpbin.org/post"
+  "nonce": "snake-002",
+  "secret": "abcd1234",
+  "evaluation_url": "https://postman-echo.com/post",
+  "brief": "Update the existing Snake and Ladder game by adding the following features: 1. Display the current player's turn on the screen. 2. Add a 'Restart Game' button to reset the board. 3. Show snakes and ladder on pages. 4. Highlight the squares where snakes or ladders are present using colors. Ensure the game logic remains intact and HTML, CSS, and JS are updated accordingly."
 }
-
