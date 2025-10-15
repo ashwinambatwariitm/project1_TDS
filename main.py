@@ -9,6 +9,7 @@ from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 import shutil
+import tempfile
 
 # Import our new module
 from huggingface_utils import deploy_to_huggingface
@@ -139,7 +140,8 @@ def process_json_request(json_data):
                 return {"status": "error", "message": "existing_repo_name required"}, 400
 
         print(f"🛠️ Updating repository: {existing_repo_name}")
-        repo_dir = os.path.join(os.getcwd(), existing_repo_name)
+        #repo_dir = os.path.join("/tmp", existing_repo_name)
+        repo_dir = tempfile.mkdtemp(prefix=f"{existing_repo_name}_")
 
         try:
             auth_url = f"https://oauth2:{GITHUB_TOKEN}@github.com/{GITHUB_USERNAME}/{existing_repo_name}.git"
