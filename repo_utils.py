@@ -47,8 +47,9 @@ def create_and_setup_repo(repo_name, html_content, username, token):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         repo_dir = os.path.join(tmpdir, repo_name)
-        #auth_url = f"https://oauth2:{token}@github.com/{username}/{repo_name}.git"
-        auth_url = f"https://github.com/{username}/{repo_name}.git"
+        # auth_url = f"https://oauth2:{token}@github.com/{username}/{repo_name}.git"
+        # auth_url = f"https://github.com/{username}/{repo_name}.git"
+        auth_url = f"https://{username}:{token}@github.com/{username}/{repo_name}.git"
         env["GIT_ASKPASS"] = "echo"
         env["GITHUB_TOKEN"] = token
 
@@ -121,7 +122,8 @@ def update_existing_repo(repo_name, modification_brief, username, token):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         repo_dir = os.path.join(tmpdir, repo_name)
-        auth_url = f"https://github.com/{username}/{repo_name}.git"
+        #auth_url = f"https://github.com/{username}/{repo_name}.git"
+        auth_url = f"https://{username}:{token}@github.com/{username}/{repo_name}.git"
         print(f"📥 Cloning repo: {auth_url}")
 
         # Step 1: Clone repo
