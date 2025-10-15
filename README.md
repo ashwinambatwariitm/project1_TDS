@@ -116,13 +116,13 @@ You can run the application directly with Uvicorn for development or build a Doc
 1.  **Create the environment (we'll name the folder venv)::**
 
     ```bash
-    python3 -m venv venv
+     python3 -m venv venv
     ```
     You will see a new folder named venv in your project directory.
 
 2.  **Activate the environment: The command differs based on your operating system.:**
     ```bash
-     python3 -m venv venv
+     source venv/bin/activate
     ```
     ➡️ Verification: After activation, you should see (venv) appear at the beginning of your terminal prompt, indicating that the virtual environment is active.
 

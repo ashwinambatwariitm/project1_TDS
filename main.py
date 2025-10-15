@@ -6,10 +6,12 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 from repo_utils import create_and_setup_repo, subprocess_run_safe
 from datetime import datetime
-from huggingface_hub import HfApi, create_repo
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 import shutil
+
+# Import our new module
+from huggingface_utils import deploy_to_huggingface
 
 # 1️⃣ Load environment variables
 load_dotenv()
@@ -23,45 +25,6 @@ genai.configure(api_key=GEMINI_API_KEY)
 # ------------------------------------------------------------------------------
 # 🔧 Utility Functions
 # ------------------------------------------------------------------------------
-
-def deploy_to_huggingface(repo_name, html_content):
-    """Deploy HTML to a Hugging Face static Space."""
-    if not HF_UBUNTU_TOKEN:
-        print("❌ HF_UBUNTU_TOKEN not found. Skipping Hugging Face deploy.")
-        return None
-
-    api = HfApi()
-    space_id = f"{GITHUB_USERNAME}/{repo_name}"
-    print(f"🚀 Deploying to Hugging Face Space: {space_id}")
-
-    try:
-        create_repo(
-            repo_id=space_id,
-            repo_type="space",
-            token=HF_UBUNTU_TOKEN,
-            space_sdk="static",
-            exist_ok=True,
-        )
-
-        tmp_path = "/tmp/index.html"
-        with open(tmp_path, "w") as f:
-            f.write(html_content)
-
-        api.upload_file(
-            path_or_fileobj=tmp_path,
-            path_in_repo="index.html",
-            repo_id=space_id,
-            repo_type="space",
-            token=HF_UBUNTU_TOKEN,
-        )
-
-        print(f"✅ Successfully deployed to: https://huggingface.co/spaces/{space_id}")
-        return f"https://huggingface.co/spaces/{space_id}"
-
-    except Exception as e:
-        print(f"❌ Hugging Face deploy failed: {e}")
-        return None
-
 
 def generate_html_from_brief(brief):
     """Generate HTML output using Gemini model."""
@@ -136,9 +99,9 @@ def process_json_request(json_data):
             repo_dir, pages_url, commit_sha = create_and_setup_repo(
                 repo_name, html_output, GITHUB_USERNAME, GITHUB_TOKEN
             )
-            hf_space_url = deploy_to_huggingface(repo_name, html_output)
 
-            # Save last repo name for round 2 in the /tmp directory
+            hf_space_url = deploy_to_huggingface(repo_name, html_output, GITHUB_USERNAME, HF_UBUNTU_TOKEN)
+
             with open("/tmp/last_round1_repo.txt", "w") as f:
                 f.write(repo_name)
 
@@ -235,7 +198,6 @@ def root():
 
 @app.post("/deploy")
 async def deploy(request: Request):
-    """Main endpoint for both round 1 and round 2."""
     try:
         json_data = await request.json()
         result, code = process_json_request(json_data)
@@ -243,18 +205,16 @@ async def deploy(request: Request):
     except Exception as e:
         return JSONResponse({"status": "❌ Failed", "error": str(e)}, status_code=500)
 
-if __name__ == "__main__":
-    # Optional: test round 1
-    sample_file = "sample_request_round1.json"
-    if os.path.exists(sample_file):
-        with open(sample_file) as f:
-            json_data = json.load(f)
-        process_json_request(json_data)
-
-
 @app.post("/evaluate")
 async def evaluate(request: Request):
     data = await request.json()
     print("\n📥 Evaluation received:")
     print(json.dumps(data, indent=2))
     return {"status": "ok"}
+
+if __name__ == "__main__":
+    sample_file = "sample_request_round1.json"
+    if os.path.exists(sample_file):
+        with open(sample_file) as f:
+            json_data = json.load(f)
+        process_json_request(json_data)
