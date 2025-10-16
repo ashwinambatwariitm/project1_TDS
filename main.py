@@ -2,6 +2,7 @@ import os
 import json
 import requests
 import time
+import base64
 import google.generativeai as genai
 from dotenv import load_dotenv
 from repo_utils import create_and_setup_repo, subprocess_run_safe, wait_for_github_pages
@@ -27,23 +28,50 @@ genai.configure(api_key=GEMINI_API_KEY)
 # 🔧 Utility Functions
 # ------------------------------------------------------------------------------
 
-def generate_html_from_brief(brief, attachments=None, checks=None):
-    """Generate HTML output using Gemini model."""
+def encode_image_to_base64(url):
+    """
+    (Optional use) Download and encode image as Base64 data URI.
+    Currently not used in prompt — but can be used for full embedding.
+    """
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        mime_type = r.headers.get("Content-Type", "image/png")
+        encoded = base64.b64encode(r.content).decode("utf-8")
+        return f"data:{mime_type};base64,{encoded}"
+    except Exception as e:
+        print(f"⚠️ Failed to encode image {url}: {e}")
+        return url  # fallback to direct URL
+
+
+def generate_html_from_brief(brief, checks=None, attachments=None):
+    """Generate HTML output using Gemini model (with image-aware prompt)."""
     model = genai.GenerativeModel("gemini-2.5-flash")
 
-    # Format attachments and checks neatly for the prompt
+    # ---- Handle attachments ----
     attachments_text = ""
     if attachments:
-        attachments_text = "\nAttachments:\n" + "\n".join(
-            [f"- {a['name']}: {a['url'][:60]}..." for a in attachments]
-        )
+        attachment_lines = []
+        for a in attachments:
+            url = a.get("url", "")
+            name = a.get("name", "unnamed")
+            # If it's an image, tell the model to display it
+            if url.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")):
+                attachment_lines.append(
+                    f"- Image: {name} ({url}) — please include this image visually in the web page using <img src='{url}'>."
+                )
+            else:
+                attachment_lines.append(f"- {name}: {url}")
+        attachments_text = "\nAttachments:\n" + "\n".join(attachment_lines)
 
+    # ---- Handle evaluation checks ----
     checks_text = ""
     if checks:
         checks_text = "\nEvaluation Checks:\n" + "\n".join(
             [f"- {c}" for c in checks]
         )
 
+    # ---- Build the final prompt ----
     prompt = f"""
     You are an expert web developer.
 
@@ -58,22 +86,23 @@ def generate_html_from_brief(brief, attachments=None, checks=None):
 
     Make sure:
     - All features mentioned in the brief are functional.
-    - Any attachment data (e.g., CSV, JSON, or image) is used appropriately.
+    - Display all image attachments appropriately using <img> or background images.
+    - Any non-image attachment (e.g., CSV, JSON, or text) is used appropriately.
     - All evaluation checks will pass.
-    - Output only HTML content (no Python, no markdown fences).
+    - Output only HTML content (no markdown, no Python, no triple backticks).
     """
 
+    # ---- Generate HTML ----
     response = model.generate_content(prompt)
     html_content = response.text.strip()
 
-    # Clean up HTML if model wrapped in code fences
+    # ---- Clean HTML ----
     if "```html" in html_content:
         html_content = html_content.split("```html")[1].split("```")[0].strip()
     elif "```" in html_content:
         html_content = html_content.split("```")[1].split("```")[0].strip()
 
     return html_content
-
 
 
 def post_with_retry(url, payload, max_wait=600):
@@ -121,7 +150,6 @@ def process_json_request(json_data):
     print(f"📨 Processing task: {task} (Round {round_num})")
 
     if round_num == 1:
-        # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         repo_name = f"{task}"
         html_output = generate_html_from_brief(brief, checks, attachments)
 
@@ -157,10 +185,8 @@ def process_json_request(json_data):
         return {"status": "✅ Round 1 completed", "repo": repo_name}, 200
 
     elif round_num == 2:
-        # Determine repo name
         existing_repo_name = json_data.get("existing_repo_name")
         if not existing_repo_name:
-            # fallback to last_round1_repo.txt in the /tmp directory
             tmp_repo_file = "/tmp/last_round1_repo.txt"
             if os.path.exists(tmp_repo_file):
                 with open(tmp_repo_file) as f:
@@ -170,14 +196,13 @@ def process_json_request(json_data):
                 return {"status": "error", "message": "existing_repo_name required"}, 400
 
         print(f"🛠️ Updating repository: {existing_repo_name}")
-        #repo_dir = os.path.join("/tmp", existing_repo_name)
         repo_dir = tempfile.mkdtemp(prefix=f"{existing_repo_name}_")
 
         try:
             auth_url = f"https://oauth2:{GITHUB_TOKEN}@github.com/{GITHUB_USERNAME}/{existing_repo_name}.git"
             subprocess_run_safe(["git", "clone", auth_url, repo_dir])
 
-            html_output = generate_html_from_brief(brief)
+            html_output = generate_html_from_brief(brief, checks, attachments)
             with open(os.path.join(repo_dir, "index.html"), "w") as f:
                 f.write(html_output)
 
@@ -198,7 +223,6 @@ def process_json_request(json_data):
             commit_sha = subprocess_run_safe(["git", "rev-parse", "HEAD"], cwd=repo_dir)
             pages_url = f"https://{GITHUB_USERNAME}.github.io/{existing_repo_name}/"
 
-            import time
             print("⏳ Waiting 120 seconds to allow GitHub Pages to refresh...")
             time.sleep(120)
             print("✅ Wait complete. Proceeding with publishing.")

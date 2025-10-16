@@ -33,10 +33,7 @@ def subprocess_run_safe(command, cwd=None, env=None, input_data=None):
 
 
 def wait_for_github_pages(url, timeout=600):
-    """
-    Polls a GitHub Pages URL until it becomes available (HTTP 200).
-    Returns True if live within timeout, else False.
-    """
+    """Polls a GitHub Pages URL until it becomes available (HTTP 200)."""
     print(f"⏳ Waiting for GitHub Pages to become live at: {url}")
     start = time.time()
     delay = 5
@@ -60,7 +57,7 @@ def wait_for_github_pages(url, timeout=600):
 
 
 def create_and_setup_repo(repo_name, html_content, username, token):
-    """Creates new GitHub repo, pushes HTML file, enables GitHub Pages, and returns repo path, pages URL, and commit SHA."""
+    """Creates a GitHub repo, pushes HTML file, enables GitHub Pages, and returns repo path, pages URL, and commit SHA."""
     print(f"🚀 Creating repository: {repo_name}")
     env = os.environ.copy()
     env["GH_TOKEN"] = token
@@ -81,12 +78,8 @@ def create_and_setup_repo(repo_name, html_content, username, token):
         env["GITHUB_TOKEN"] = token
 
         print(f"🔗 Cloning from: {auth_url}")
-
         # Step 2: Clone repo
-        clone_result = subprocess_run_safe(
-            ["git", "clone", auth_url, repo_dir],
-            env=env
-        )
+        clone_result = subprocess_run_safe(["git", "clone", auth_url, repo_dir], env=env)
         if clone_result is None:
             print("❌ Git clone failed.")
             return None, None, None
@@ -97,7 +90,7 @@ def create_and_setup_repo(repo_name, html_content, username, token):
 
         # Step 4: Add LICENSE
         with open(os.path.join(repo_dir, "LICENSE"), "w") as f:
-            f.write("MIT License\n\nCopyright (c) 2025 Ram Verma")
+            f.write("MIT License\n\nCopyright (c) 2025")
 
         # Step 5: Add README.md
         with open(os.path.join(repo_dir, "README.md"), "w") as f:
@@ -137,61 +130,3 @@ def create_and_setup_repo(repo_name, html_content, username, token):
 
         print(f"✅ Repository setup completed. Live at: {pages_url}")
         return repo_dir, pages_url, commit_sha
-
-
-def update_existing_repo(repo_name, modification_brief, username, token):
-    """Handles Round 2 repo updates and redeploys."""
-    print(f"🔄 Updating existing repository for Round 2: {repo_name}")
-    env = os.environ.copy()
-    env["GH_TOKEN"] = token
-    env["GITHUB_TOKEN"] = token
-    env["GIT_ASKPASS"] = "echo"
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        repo_dir = os.path.join(tmpdir, repo_name)
-        auth_url = f"https://{username}:{token}@github.com/{username}/{repo_name}.git"
-        print(f"📥 Cloning repo: {auth_url}")
-
-        # Step 1: Clone repo
-        if subprocess_run_safe(["git", "clone", auth_url, repo_dir], env=env) is None:
-            print("❌ Failed to clone existing repo.")
-            return None, None
-
-        # Step 2: Modify index.html (simple placeholder for now)
-        index_path = os.path.join(repo_dir, "index.html")
-        if os.path.exists(index_path):
-            with open(index_path, "a") as f:
-                f.write(f"\n<!-- Round 2 Update: {modification_brief} -->\n")
-            print("📝 Updated index.html with Round 2 note.")
-        else:
-            print("⚠️ index.html not found; skipping update.")
-
-        # Step 3: Update README.md
-        readme_path = os.path.join(repo_dir, "README.md")
-        with open(readme_path, "a") as f:
-            f.write(f"\n### Round 2 Updates\n{modification_brief}\n")
-
-        # Step 4: Commit & push
-        cmds = [
-            ["git", "config", "user.name", "Automation Bot"],
-            ["git", "config", "user.email", "bot@example.com"],
-            ["git", "add", "."],
-            ["git", "commit", "-m", f"Round 2 update: {modification_brief[:60]}"],
-            ["git", "push", "origin", "main"]
-        ]
-        for cmd in cmds:
-            if subprocess_run_safe(cmd, cwd=repo_dir, env=env) is None:
-                print("❌ Git command failed during update.")
-                return None, None
-
-        # Step 5: Verify new commit SHA
-        commit_sha = subprocess_run_safe(["git", "rev-parse", "HEAD"], cwd=repo_dir, env=env)
-        if not commit_sha:
-            commit_sha = "unknown_commit"
-
-        # Step 6: Return details
-        pages_url = f"https://{username}.github.io/{repo_name}/"
-        wait_for_github_pages(pages_url)
-
-        print(f"✅ Repo updated and redeployed at {pages_url}")
-        return pages_url, commit_sha
