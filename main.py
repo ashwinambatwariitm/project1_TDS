@@ -4,7 +4,7 @@ import requests
 import time
 import google.generativeai as genai
 from dotenv import load_dotenv
-from repo_utils import create_and_setup_repo, subprocess_run_safe
+from repo_utils import create_and_setup_repo, subprocess_run_safe, wait_for_github_pages
 from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -27,25 +27,53 @@ genai.configure(api_key=GEMINI_API_KEY)
 # 🔧 Utility Functions
 # ------------------------------------------------------------------------------
 
-def generate_html_from_brief(brief):
+def generate_html_from_brief(brief, attachments=None, checks=None):
     """Generate HTML output using Gemini model."""
     model = genai.GenerativeModel("gemini-2.5-flash")
+
+    # Format attachments and checks neatly for the prompt
+    attachments_text = ""
+    if attachments:
+        attachments_text = "\nAttachments:\n" + "\n".join(
+            [f"- {a['name']}: {a['url'][:60]}..." for a in attachments]
+        )
+
+    checks_text = ""
+    if checks:
+        checks_text = "\nEvaluation Checks:\n" + "\n".join(
+            [f"- {c}" for c in checks]
+        )
+
     prompt = f"""
-    You are an expert web developer. Based on the following project brief:
+    You are an expert web developer.
+
+    Based on the following project brief:
     {brief}
 
-    Generate a COMPLETE HTML file (with inline CSS/JS) implementing the requested feature(s).
-    Do not include Python code or explanations.
-    """
-    response = model.generate_content(prompt)
-    html_content = response.text
+    {attachments_text}
 
-    # Extract HTML safely
+    {checks_text}
+
+    Generate a COMPLETE HTML file (with inline CSS/JS) implementing all required features.
+
+    Make sure:
+    - All features mentioned in the brief are functional.
+    - Any attachment data (e.g., CSV, JSON, or image) is used appropriately.
+    - All evaluation checks will pass.
+    - Output only HTML content (no Python, no markdown fences).
+    """
+
+    response = model.generate_content(prompt)
+    html_content = response.text.strip()
+
+    # Clean up HTML if model wrapped in code fences
     if "```html" in html_content:
         html_content = html_content.split("```html")[1].split("```")[0].strip()
     elif "```" in html_content:
         html_content = html_content.split("```")[1].split("```")[0].strip()
+
     return html_content
+
 
 
 def post_with_retry(url, payload, max_wait=600):
@@ -82,6 +110,8 @@ def process_json_request(json_data):
     brief = json_data.get("brief")
     evaluation_url = json_data.get("evaluation_url")
     secret = json_data.get("secret")
+    checks = json_data.get("checks", [])
+    attachments = json_data.get("attachments", [])
 
     expected_secret = os.getenv("SERVER_SECRET", "abcd1234")
     if secret != expected_secret:
@@ -93,7 +123,7 @@ def process_json_request(json_data):
     if round_num == 1:
         # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         repo_name = f"{task}"
-        html_output = generate_html_from_brief(brief)
+        html_output = generate_html_from_brief(brief, checks, attachments)
 
         repo_dir, pages_url, commit_sha = None, None, "unknown_commit"
         try:
@@ -167,6 +197,11 @@ def process_json_request(json_data):
 
             commit_sha = subprocess_run_safe(["git", "rev-parse", "HEAD"], cwd=repo_dir)
             pages_url = f"https://{GITHUB_USERNAME}.github.io/{existing_repo_name}/"
+
+            import time
+            print("⏳ Waiting 120 seconds to allow GitHub Pages to refresh...")
+            time.sleep(120)
+            print("✅ Wait complete. Proceeding with publishing.")
 
             payload = {
                 "email": email,

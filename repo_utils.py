@@ -1,6 +1,8 @@
 import os
 import subprocess
 import tempfile
+import time
+import requests
 
 def subprocess_run_safe(command, cwd=None, env=None, input_data=None):
     """Execute subprocess command with complete error output."""
@@ -30,6 +32,33 @@ def subprocess_run_safe(command, cwd=None, env=None, input_data=None):
         return None
 
 
+def wait_for_github_pages(url, timeout=600):
+    """
+    Polls a GitHub Pages URL until it becomes available (HTTP 200).
+    Returns True if live within timeout, else False.
+    """
+    print(f"⏳ Waiting for GitHub Pages to become live at: {url}")
+    start = time.time()
+    delay = 5
+
+    while time.time() - start < timeout:
+        try:
+            r = requests.get(url, timeout=10)
+            if r.status_code == 200:
+                print(f"✅ GitHub Pages is live at: {url}")
+                return True
+            else:
+                print(f"Still building... ({r.status_code})")
+        except requests.RequestException:
+            print("Still building... (no response)")
+
+        time.sleep(delay)
+        delay = min(delay + 5, 30)
+
+    print("❌ Timeout: GitHub Pages did not go live within the expected time.")
+    return False
+
+
 def create_and_setup_repo(repo_name, html_content, username, token):
     """Creates new GitHub repo, pushes HTML file, enables GitHub Pages, and returns repo path, pages URL, and commit SHA."""
     print(f"🚀 Creating repository: {repo_name}")
@@ -47,8 +76,6 @@ def create_and_setup_repo(repo_name, html_content, username, token):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         repo_dir = os.path.join(tmpdir, repo_name)
-        # auth_url = f"https://oauth2:{token}@github.com/{username}/{repo_name}.git"
-        # auth_url = f"https://github.com/{username}/{repo_name}.git"
         auth_url = f"https://{username}:{token}@github.com/{username}/{repo_name}.git"
         env["GIT_ASKPASS"] = "echo"
         env["GITHUB_TOKEN"] = token
@@ -97,23 +124,23 @@ def create_and_setup_repo(repo_name, html_content, username, token):
             env=env
         ) is None:
             print("❌ Enabling GitHub Pages failed.")
-            return None, None
+            return None, None, None
 
-        # After last git push, still inside the tempdir
+        # Step 8: Wait for Pages to go live
+        pages_url = f"https://{username}.github.io/{repo_name}/"
+        wait_for_github_pages(pages_url)
+
+        # Step 9: Capture commit SHA
         commit_sha = subprocess_run_safe(["git", "rev-parse", "HEAD"], cwd=repo_dir, env=env)
         if commit_sha is None:
             commit_sha = "unknown_commit"
-    
-        # Success → return repo_dir and pages URL
-        pages_url = f"https://{username}.github.io/{repo_name}/"
+
+        print(f"✅ Repository setup completed. Live at: {pages_url}")
         return repo_dir, pages_url, commit_sha
 
 
 def update_existing_repo(repo_name, modification_brief, username, token):
-    """
-    Clones existing GitHub repo, applies modifications based on new brief,
-    commits changes, pushes to redeploy, and returns new commit SHA + Pages URL.
-    """
+    """Handles Round 2 repo updates and redeploys."""
     print(f"🔄 Updating existing repository for Round 2: {repo_name}")
     env = os.environ.copy()
     env["GH_TOKEN"] = token
@@ -122,7 +149,6 @@ def update_existing_repo(repo_name, modification_brief, username, token):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         repo_dir = os.path.join(tmpdir, repo_name)
-        #auth_url = f"https://github.com/{username}/{repo_name}.git"
         auth_url = f"https://{username}:{token}@github.com/{username}/{repo_name}.git"
         print(f"📥 Cloning repo: {auth_url}")
 
@@ -165,5 +191,7 @@ def update_existing_repo(repo_name, modification_brief, username, token):
 
         # Step 6: Return details
         pages_url = f"https://{username}.github.io/{repo_name}/"
+        wait_for_github_pages(pages_url)
+
         print(f"✅ Repo updated and redeployed at {pages_url}")
         return pages_url, commit_sha
