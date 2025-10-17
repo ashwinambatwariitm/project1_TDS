@@ -3,36 +3,31 @@ import json
 import requests
 import time
 import base64
-import google.generativeai as genai
-from dotenv import load_dotenv
-from repo_utils import create_and_setup_repo, subprocess_run_safe, wait_for_github_pages
-from datetime import datetime
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 import shutil
 import tempfile
+from dotenv import load_dotenv
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
-# Import our new module
+from repo_utils import create_and_setup_repo, subprocess_run_safe, wait_for_github_pages
 from huggingface_utils import deploy_to_huggingface
+from config import (
+    GITHUB_USERNAME, GITHUB_TOKEN, SERVER_SECRET,
+    validate_config, get_gemini_client, get_fallback_client
+)
 
-# 1️⃣ Load environment variables
+# ----------------------------
+# 🔧 Initialize environment
+# ----------------------------
 load_dotenv()
-GITHUB_USERNAME = os.getenv("GITHUB_USERNAME")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+validate_config()
+
 HF_UBUNTU_TOKEN = os.getenv("HF_UBUNTU_TOKEN")
 
-genai.configure(api_key=GEMINI_API_KEY)
-
-# ------------------------------------------------------------------------------
-# 🔧 Utility Functions
-# ------------------------------------------------------------------------------
-
+# ----------------------------
+# ⚡ Utility: encode image to Base64 (optional)
+# ----------------------------
 def encode_image_to_base64(url):
-    """
-    (Optional use) Download and encode image as Base64 data URI.
-    Currently not used in prompt — but can be used for full embedding.
-    """
     try:
         r = requests.get(url, timeout=10)
         r.raise_for_status()
@@ -43,60 +38,66 @@ def encode_image_to_base64(url):
         print(f"⚠️ Failed to encode image {url}: {e}")
         return url  # fallback to direct URL
 
+# ----------------------------
+# ⚡ Generate HTML (fallback-aware)
+# ----------------------------
+def generate_html_from_brief(brief, attachments=None, checks=None, use_fallback=False):
+    attachments = attachments or []
+    checks = checks or []
 
-def generate_html_from_brief(brief, checks=None, attachments=None):
-    """Generate HTML output using Gemini model (with image-aware prompt)."""
-    model = genai.GenerativeModel("gemini-2.5-flash")
-
-    # ---- Handle attachments ----
+    # ---- Format attachments ----
     attachments_text = ""
     if attachments:
-        attachment_lines = []
+        lines = []
         for a in attachments:
-            url = a.get("url", "")
-            name = a.get("name", "unnamed")
-            # If it's an image, tell the model to display it
+            name = a.get("filename") or a.get("name") or "attachment"
+            url = a.get("url") or a.get("content") or ""
+            url_preview = (url[:60] + "...") if isinstance(url, str) and len(url) > 60 else url
             if url.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")):
-                attachment_lines.append(
-                    f"- Image: {name} ({url}) — please include this image visually in the web page using <img src='{url}'>."
-                )
+                lines.append(f"- Image: {name} ({url_preview}) — include visually using <img src='{url}'>")
             else:
-                attachment_lines.append(f"- {name}: {url}")
-        attachments_text = "\nAttachments:\n" + "\n".join(attachment_lines)
+                lines.append(f"- {name}: {url_preview}")
+        attachments_text = "\nAttachments:\n" + "\n".join(lines)
 
-    # ---- Handle evaluation checks ----
+    # ---- Format checks ----
     checks_text = ""
     if checks:
-        checks_text = "\nEvaluation Checks:\n" + "\n".join(
-            [f"- {c}" for c in checks]
-        )
+        checks_text = "\nEvaluation Checks:\n" + "\n".join([f"- {c}" for c in checks])
 
-    # ---- Build the final prompt ----
+    # ---- Build prompt ----
     prompt = f"""
-    You are an expert web developer.
+You are an expert web developer.
 
-    Based on the following project brief:
-    {brief}
+Based on the following project brief:
+{brief}
 
-    {attachments_text}
+{attachments_text}
 
-    {checks_text}
+{checks_text}
 
-    Generate a COMPLETE HTML file (with inline CSS/JS) implementing all required features.
+Generate a COMPLETE HTML file (inline CSS/JS) implementing all required features.
+- All features must work as described.
+- Display images correctly using <img> or background images.
+- Use non-image attachments (CSV, JSON, text) appropriately.
+- All evaluation checks must pass.
+- Output ONLY HTML content (no markdown or Python code, no backticks).
+"""
 
-    Make sure:
-    - All features mentioned in the brief are functional.
-    - Display all image attachments appropriately using <img> or background images.
-    - Any non-image attachment (e.g., CSV, JSON, or text) is used appropriately.
-    - All evaluation checks will pass.
-    - Output only HTML content (no markdown, no Python, no triple backticks).
-    """
+    # ---- Choose client ----
+    client = get_fallback_client() if use_fallback else get_gemini_client()
 
-    # ---- Generate HTML ----
-    response = model.generate_content(prompt)
-    html_content = response.text.strip()
+    try:
+        model = client.GenerativeModel("gemini-2.5-flash")
+        response = model.generate_content(prompt)
+        html_content = response.text.strip()
+    except Exception as e:
+        if not use_fallback:
+            print(f"⚠️ Primary Gemini API failed: {e}. Trying fallback...")
+            return generate_html_from_brief(brief, attachments, checks, use_fallback=True)
+        else:
+            raise RuntimeError(f"Both primary and fallback Gemini APIs failed: {e}")
 
-    # ---- Clean HTML ----
+    # ---- Clean HTML fences ----
     if "```html" in html_content:
         html_content = html_content.split("```html")[1].split("```")[0].strip()
     elif "```" in html_content:
@@ -104,9 +105,10 @@ def generate_html_from_brief(brief, checks=None, attachments=None):
 
     return html_content
 
-
+# ----------------------------
+# ⚡ POST with retry
+# ----------------------------
 def post_with_retry(url, payload, max_wait=600):
-    """POST payload with exponential backoff for up to 10 minutes."""
     delay = 2
     total_wait = 0
     while total_wait < max_wait:
@@ -126,12 +128,10 @@ def post_with_retry(url, payload, max_wait=600):
     print("❌ Gave up after 10 minutes.")
     return False
 
-# ------------------------------------------------------------------------------
-# 🧩 Main Processing Logic
-# ------------------------------------------------------------------------------
-
+# ----------------------------
+# ⚡ Main JSON processing
+# ----------------------------
 def process_json_request(json_data):
-    """Handles both round 1 and round 2 requests."""
     email = json_data.get("email")
     task = json_data.get("task")
     round_num = json_data.get("round", 1)
@@ -142,115 +142,100 @@ def process_json_request(json_data):
     checks = json_data.get("checks", [])
     attachments = json_data.get("attachments", [])
 
-    expected_secret = os.getenv("SECRET", "abcd1234")
-    if secret != expected_secret:
+    if secret != SERVER_SECRET:
         print("❌ Invalid secret.")
         return {"status": "error", "message": "Unauthorized"}, 401
 
+    repo_name = json_data.get("existing_repo_name") or f"{task}"
     print(f"📨 Processing task: {task} (Round {round_num})")
 
     if round_num == 1:
-        repo_name = f"{task}"
-        html_output = generate_html_from_brief(brief, checks, attachments)
+        html_output = generate_html_from_brief(brief, attachments, checks)
+        repo_dir, pages_url, commit_sha = create_and_setup_repo(
+            repo_name, html_output, GITHUB_USERNAME, GITHUB_TOKEN
+        )
+        hf_space_url = deploy_to_huggingface(repo_name, html_output, GITHUB_USERNAME, HF_UBUNTU_TOKEN)
 
-        repo_dir, pages_url, commit_sha = None, None, "unknown_commit"
-        try:
-            repo_dir, pages_url, commit_sha = create_and_setup_repo(
-                repo_name, html_output, GITHUB_USERNAME, GITHUB_TOKEN
-            )
+        with open("/tmp/last_round1_repo.txt", "w") as f:
+            f.write(repo_name)
 
-            hf_space_url = deploy_to_huggingface(repo_name, html_output, GITHUB_USERNAME, HF_UBUNTU_TOKEN)
+        payload = {
+            "email": email,
+            "task": task,
+            "round": 1,
+            "nonce": nonce,
+            "repo_url": f"https://github.com/{GITHUB_USERNAME}/{repo_name}",
+            "commit_sha": commit_sha,
+            "pages_url": pages_url,
+            "hf_space_url": hf_space_url,
+        }
+        print(f"📤 Sending Round 1 payload:\n{json.dumps(payload, indent=2)}")
+        post_with_retry(evaluation_url, payload)
 
-            with open("/tmp/last_round1_repo.txt", "w") as f:
-                f.write(repo_name)
-
-            payload = {
-                "email": email,
-                "task": task,
-                "round": 1,
-                "nonce": nonce,
-                "repo_url": f"https://github.com/{GITHUB_USERNAME}/{repo_name}",
-                "commit_sha": commit_sha,
-                "pages_url": pages_url,
-            }
-
-            print(f"📤 Sending Round 1 payload:\n{json.dumps(payload, indent=2)}")
-            post_with_retry(evaluation_url, payload)
-
-        finally:
-            if repo_dir and os.path.exists(repo_dir):
-                shutil.rmtree(repo_dir)
-                print(f"🗑️ Cleaned up local folder: {repo_dir}")
+        if repo_dir and os.path.exists(repo_dir):
+            shutil.rmtree(repo_dir)
+            print(f"🗑️ Cleaned up local folder: {repo_dir}")
 
         return {"status": "✅ Round 1 completed", "repo": repo_name}, 200
 
     elif round_num == 2:
-        existing_repo_name = json_data.get("existing_repo_name")
-        if not existing_repo_name:
+        if not repo_name:
             tmp_repo_file = "/tmp/last_round1_repo.txt"
             if os.path.exists(tmp_repo_file):
                 with open(tmp_repo_file) as f:
-                    existing_repo_name = f.read().strip()
+                    repo_name = f.read().strip()
             else:
                 print("❌ Missing 'existing_repo_name' for round 2.")
                 return {"status": "error", "message": "existing_repo_name required"}, 400
 
-        print(f"🛠️ Updating repository: {existing_repo_name}")
-        repo_dir = tempfile.mkdtemp(prefix=f"{existing_repo_name}_")
+        repo_dir = tempfile.mkdtemp(prefix=f"{repo_name}_")
+        auth_url = f"https://oauth2:{GITHUB_TOKEN}@github.com/{GITHUB_USERNAME}/{repo_name}.git"
+        subprocess_run_safe(["git", "clone", auth_url, repo_dir])
 
-        try:
-            auth_url = f"https://oauth2:{GITHUB_TOKEN}@github.com/{GITHUB_USERNAME}/{existing_repo_name}.git"
-            subprocess_run_safe(["git", "clone", auth_url, repo_dir])
+        html_output = generate_html_from_brief(brief, attachments, checks)
+        with open(os.path.join(repo_dir, "index.html"), "w") as f:
+            f.write(html_output)
 
-            html_output = generate_html_from_brief(brief, checks, attachments)
-            with open(os.path.join(repo_dir, "index.html"), "w") as f:
-                f.write(html_output)
+        readme_path = os.path.join(repo_dir, "README.md")
+        with open(readme_path, "a") as f:
+            f.write(f"\n\n## Round 2 Update\n- {brief}\n")
 
-            readme_path = os.path.join(repo_dir, "README.md")
-            with open(readme_path, "a") as f:
-                f.write(f"\n\n## Round 2 Update\n- {brief}\n")
+        cmds = [
+            ["git", "config", "user.name", "Automation Bot"],
+            ["git", "config", "user.email", "bot@example.com"],
+            ["git", "add", "."],
+            ["git", "commit", "-m", "Round 2 feature update"],
+            ["git", "push", "origin", "main"],
+        ]
+        for cmd in cmds:
+            subprocess_run_safe(cmd, cwd=repo_dir)
 
-            cmds = [
-                ["git", "config", "user.name", "Automation Bot"],
-                ["git", "config", "user.email", "bot@example.com"],
-                ["git", "add", "."],
-                ["git", "commit", "-m", "Round 2 feature update"],
-                ["git", "push", "origin", "main"],
-            ]
-            for cmd in cmds:
-                subprocess_run_safe(cmd, cwd=repo_dir)
+        commit_sha = subprocess_run_safe(["git", "rev-parse", "HEAD"], cwd=repo_dir)
+        pages_url = f"https://{GITHUB_USERNAME}.github.io/{repo_name}/"
+        print("⏳ Waiting 120s for GitHub Pages refresh...")
+        time.sleep(120)
 
-            commit_sha = subprocess_run_safe(["git", "rev-parse", "HEAD"], cwd=repo_dir)
-            pages_url = f"https://{GITHUB_USERNAME}.github.io/{existing_repo_name}/"
+        payload = {
+            "email": email,
+            "task": task,
+            "round": 2,
+            "nonce": nonce,
+            "repo_url": f"https://github.com/{GITHUB_USERNAME}/{repo_name}",
+            "commit_sha": commit_sha or "unknown_commit",
+            "pages_url": pages_url,
+        }
+        print(f"📤 Sending Round 2 payload:\n{json.dumps(payload, indent=2)}")
+        post_with_retry(evaluation_url, payload)
 
-            print("⏳ Waiting 120 seconds to allow GitHub Pages to refresh...")
-            time.sleep(120)
-            print("✅ Wait complete. Proceeding with publishing.")
+        if os.path.exists(repo_dir):
+            shutil.rmtree(repo_dir)
+            print(f"🗑️ Cleaned up local folder: {repo_dir}")
 
-            payload = {
-                "email": email,
-                "task": task,
-                "round": 2,
-                "nonce": nonce,
-                "repo_url": f"https://github.com/{GITHUB_USERNAME}/{existing_repo_name}",
-                "commit_sha": commit_sha or "unknown_commit",
-                "pages_url": pages_url,
-            }
+        return {"status": "✅ Round 2 completed", "repo": repo_name}, 200
 
-            print(f"📤 Sending Round 2 payload:\n{json.dumps(payload, indent=2)}")
-            post_with_retry(evaluation_url, payload)
-
-        finally:
-            if os.path.exists(repo_dir):
-                shutil.rmtree(repo_dir)
-                print(f"🗑️ Cleaned up local folder: {repo_dir}")
-
-        return {"status": "✅ Round 2 completed", "repo": existing_repo_name}, 200
-
-# ------------------------------------------------------------------------------
-# ⚙️ FastAPI Web Server
-# ------------------------------------------------------------------------------
-
+# ----------------------------
+# ⚡ FastAPI server
+# ----------------------------
 app = FastAPI(title="Dynamic Auto Web Deployer (Round 1 + Round 2)")
 
 @app.get("/")
@@ -272,6 +257,9 @@ async def evaluate(request: Request):
     print("\n📥 Evaluation received:")
     print(json.dumps(data, indent=2))
     return {"status": "ok"}
+
+@app.get
+
 
 @app.get("/health")
 async def health_check():
