@@ -11,16 +11,24 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Choose API URLs: local vs Hugging Face
+USE_HF = True  # Set False to test locally
+
 # Base URL for local FastAPI server
 B_URL = "http://localhost:7860/"
-API_URL = B_URL + "deploy"  # Matches the POST endpoint defined in main.py
-SECRET = os.getenv("SECRET", "")  # Default if not in .env
 
 # Dummy evaluation server configuration (used when running tests locally)
 DUMMY_EVAL_PORT = 9001
-DUMMY_EVAL_URL = f"http://localhost:{DUMMY_EVAL_PORT}/evaluate"
 
+if USE_HF:
+    API_URL = os.getenv("HF_API_URL")
+    DUMMY_EVAL_URL = "https://postman-echo.com/post"   # " os.getenv("HF_EVALUATION_URL")
+else:
+    API_URL = B_URL + "deploy"  # Matches the POST endpoint defined in main.py
+    DUMMY_EVAL_URL = f"http://localhost:{DUMMY_EVAL_PORT}/evaluate"
 
+# API secret
+SECRET = os.getenv("SECRET", "")
 
 class _DummyEvalHandler(BaseHTTPRequestHandler):
     def _send_json(self, code: int, obj: dict):
@@ -806,7 +814,7 @@ def main():
     print("=" * 60)
     print("LLM Code Deployment System - Test Suite")
     print("=" * 60)
-    print("\nMake sure the server is running (uv run main.py)")
+    print("\nMake sure the server is running (uv run main.py for local or HF deployment)")
 
     selected_request, example_name = select_test_example()
     if selected_request is None:
@@ -820,39 +828,42 @@ def main():
         print("\n\nCancelled.")
         return
 
-    if not test_health():
-        print("\n Server is not responding. Make sure it's running.")
-        return
+    # Only run health check for local server
+    if not USE_HF:
+        if not test_health():
+            print("\nServer is not responding. Make sure it's running.")
+            return
 
     print("\n\nStarting deployment test...")
-    print("This will create a real GitHub repository and may take 30-60 seconds.")
-    print("Press Enter to continue, or Ctrl+C to cancel...")
+    print("This may create a real GitHub repository and take 30-60 seconds.")
+    print("\nPress Enter to continue, or Ctrl+C to cancel...")
     try:
-        # Start local dummy evaluation server and point evaluation_url to it
+        input()
+    except KeyboardInterrupt:
+        print("\n\nCancelled.")
+        return
+
+    # For local, start dummy evaluation server; for HF, just use the deployed evaluation URL
+    if not USE_HF:
         try:
             server, server_thread = start_dummy_evaluation_server()
-            # Override evaluation_url on the selected request so the notifier posts locally
             if isinstance(selected_request, dict):
                 selected_request["evaluation_url"] = DUMMY_EVAL_URL
         except Exception as e:
             print(f"Warning: could not start dummy evaluation server: {e}")
             server = None
             server_thread = None
-
-        input()
-    except KeyboardInterrupt:
-        print("\n\nCancelled.")
-        return
+    else:
+        # On HF, just ensure evaluation URL is set
+        if isinstance(selected_request, dict):
+            selected_request["evaluation_url"] = DUMMY_EVAL_URL
 
     success = test_deployment(selected_request)
 
     if success:
         round2_examples = get_round2_examples(example_name)
-
         if round2_examples:
-            print(
-                f"\n\nThis example has {len(round2_examples)} Round 2 scenarios available."
-            )
+            print(f"\n\nThis example has {len(round2_examples)} Round 2 scenarios available.")
             print("Would you like to test Round 2 revisions? (y/n)")
             try:
                 choice = input().strip().lower()
@@ -884,19 +895,22 @@ def main():
             except KeyboardInterrupt:
                 print("\n\nCancelled.")
 
+    # Shutdown dummy evaluation server if started
+    if not USE_HF:
+        try:
+            if 'server' in locals() and server is not None:
+                print("Shutting down dummy evaluation server...")
+                try:
+                    server.shutdown()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     print("\n" + "=" * 60)
     print("Test suite completed!")
     print("=" * 60)
-    # Shutdown dummy evaluation server if started
-    try:
-        if 'server' in locals() and server is not None:
-            print("Shutting down dummy evaluation server...")
-            try:
-                server.shutdown()
-            except Exception:
-                pass
-    except Exception:
-        pass
+
 
 
 # === Main test logic example ===
@@ -914,4 +928,4 @@ def test_local_submission():
 
 if __name__ == "__main__":
     main()
-    #test_local_submission()
+    # test_local_submission()
