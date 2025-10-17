@@ -93,7 +93,7 @@ Follow these steps to set up and run the project locally or deploy it.
     GITHUB_TOKEN="ghp_YourGitHubPersonalAccessToken"
     GEMINI_API_KEY="YourGoogleGeminiAPIKey"
     HF_UBUNTU_TOKEN="hf_YourHuggingFaceWriteToken"
-    SERVER_SECRET="abcd1234" # A custom secret to secure your endpoint
+    SECRET="abcd1234" # A custom secret to secure your endpoint
     ```
 
     > **Important:**

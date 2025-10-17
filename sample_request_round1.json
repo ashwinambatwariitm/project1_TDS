@@ -3,7 +3,7 @@
   "task": "SnakeAndLadderGame",
   "round": 1,
   "nonce": "snake-001",
-  "secret": "abcd1234",
+  "secret": "SECRET",
   "evaluation_url": "https://postman-echo.com/post",
   "brief": "Create a simple web-based Snake and Ladder game for 2 players. The game should have a 10x10 board, dice roll functionality, and player tokens moving on the board. Use HTML, CSS, and JavaScript only. Do not include any backend logic."
 }

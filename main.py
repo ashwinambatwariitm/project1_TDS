@@ -142,7 +142,7 @@ def process_json_request(json_data):
     checks = json_data.get("checks", [])
     attachments = json_data.get("attachments", [])
 
-    expected_secret = os.getenv("SERVER_SECRET", "abcd1234")
+    expected_secret = os.getenv("SECRET", "abcd1234")
     if secret != expected_secret:
         print("❌ Invalid secret.")
         return {"status": "error", "message": "Unauthorized"}, 401
@@ -273,9 +273,14 @@ async def evaluate(request: Request):
     print(json.dumps(data, indent=2))
     return {"status": "ok"}
 
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "message": "Server is healthy"}
+
 if __name__ == "__main__":
     sample_file = "sample_request_round1.json"
     if os.path.exists(sample_file):
         with open(sample_file) as f:
             json_data = json.load(f)
         process_json_request(json_data)
+
